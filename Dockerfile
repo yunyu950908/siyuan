@@ -1,6 +1,6 @@
 FROM node:21 as NODE_BUILD
-WORKDIR /go/src/github.com/siyuan-note/siyuan/
-ADD . /go/src/github.com/siyuan-note/siyuan/
+WORKDIR /go/src/github.com/siyuan-community/siyuan/
+ADD . /go/src/github.com/siyuan-community/siyuan/
 RUN cd app && npm install -g pnpm@9.0.2 && pnpm install && pnpm run build
 
 FROM golang:alpine as GO_BUILD
@@ -23,11 +23,13 @@ LABEL maintainer="Liang Ding<845765@qq.com>"
 
 WORKDIR /opt/siyuan/
 COPY --from=GO_BUILD /opt/siyuan/ /opt/siyuan/
-RUN addgroup --gid 1000 siyuan && adduser --uid 1000 --ingroup siyuan --disabled-password siyuan && apk add --no-cache ca-certificates tzdata && chown -R siyuan:siyuan /opt/siyuan/
+RUN apk add --no-cache ca-certificates tzdata
+# RUN addgroup --gid 1000 siyuan && adduser --uid 1000 --ingroup siyuan --disabled-password siyuan && apk add --no-cache ca-certificates tzdata && chown -R siyuan:siyuan /opt/siyuan/
 
 ENV TZ=Asia/Shanghai
 ENV RUN_IN_CONTAINER=true
+ENV LANG=zh_CN.UTF-8
+ENV LC_ALL=zh_CN.UTF-8
 EXPOSE 6806
 
-USER siyuan
 ENTRYPOINT ["/opt/siyuan/kernel"]

@@ -32,5 +32,4 @@ ENV LANG=zh_CN.UTF-8
 ENV LC_ALL=zh_CN.UTF-8
 EXPOSE 6806
 
-USER siyuan
 ENTRYPOINT ["/opt/siyuan/kernel"]

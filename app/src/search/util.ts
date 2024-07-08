@@ -23,7 +23,7 @@ import {addLoading} from "../protyle/ui/initUI";
 import {getIconByType} from "../editor/getIcon";
 import {unicode2Emoji} from "../emoji";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
-import {isNotCtrl, setStorageVal, updateHotkeyTip} from "../protyle/util/compatibility";
+import {isNotCtrl, isMac, setStorageVal, updateHotkeyTip} from "../protyle/util/compatibility";
 import {newFileByName} from "../util/newFile";
 import {
     filterMenu,
@@ -357,9 +357,9 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
     <div class="search__tip${closeCB ? "" : " fn__none"}">
         <kbd>↑/↓/PageUp/PageDown</kbd> ${window.siyuan.languages.searchTip1}
         <kbd>${updateHotkeyTip(window.siyuan.config.keymap.general.newFile.custom)}</kbd> ${window.siyuan.languages.new}
-        <kbd>Enter/Double Click</kbd> ${window.siyuan.languages.searchTip2}
-        <kbd>Click</kbd> ${window.siyuan.languages.searchTip3}
-        <kbd>${updateHotkeyTip(window.siyuan.config.keymap.editor.general.insertRight.custom)}/${updateHotkeyTip("⌥Click")}</kbd> ${window.siyuan.languages.searchTip4}
+        <kbd>${window.siyuan.languages.enterKey}/${window.siyuan.languages.doubleClick}</kbd> ${window.siyuan.languages.searchTip2}
+        <kbd>${window.siyuan.languages.click}</kbd> ${window.siyuan.languages.searchTip3}
+        <kbd>${updateHotkeyTip(window.siyuan.config.keymap.editor.general.insertRight.custom)}/${isMac() ? "⌥" : "Alt+"}${window.siyuan.languages.click}</kbd> ${window.siyuan.languages.searchTip4}
         <kbd>Esc</kbd> ${window.siyuan.languages.searchTip5}
     </div>
 </div>
@@ -388,8 +388,8 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
     </div>
     <div class="search__tip${closeCB ? "" : " fn__none"}">
         <kbd>↑/↓/PageUp/PageDown</kbd> ${window.siyuan.languages.searchTip1}
-        <kbd>Enter/Double Click</kbd> ${window.siyuan.languages.searchTip2}
-        <kbd>${updateHotkeyTip(window.siyuan.config.keymap.editor.general.insertRight.custom)}/${updateHotkeyTip("⌥Click")}</kbd> ${window.siyuan.languages.searchTip4}
+        <kbd>${window.siyuan.languages.enterKey}/${window.siyuan.languages.doubleClick}</kbd> ${window.siyuan.languages.searchTip2}
+        <kbd>${updateHotkeyTip(window.siyuan.config.keymap.editor.general.insertRight.custom)}/${updateHotkeyTip("⌥" + window.siyuan.languages.click)}</kbd> ${window.siyuan.languages.searchTip4}
         <kbd>Esc</kbd> ${window.siyuan.languages.searchTip5}
     </div>
 </div>
@@ -509,7 +509,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                     page: 1,
                     types: getDefaultType(),
                     replaceTypes: Object.assign({}, Constants.SIYUAN_DEFAULT_REPLACETYPES),
-                }, config, edit);
+                }, config, edit, true);
                 element.querySelector(".b3-chip--current")?.classList.remove("b3-chip--current");
                 event.stopPropagation();
                 event.preventDefault();
@@ -751,7 +751,7 @@ export const genSearch = (app: App, config: Config.IUILayoutTabSearchConfig, ele
                         page: 1,
                         types: getDefaultType(),
                         replaceTypes: Object.assign({}, Constants.SIYUAN_DEFAULT_REPLACETYPES),
-                    }, config, edit);
+                    }, config, edit, true);
                     element.querySelector("#criteria .b3-chip--current")?.classList.remove("b3-chip--current");
                 }, () => {
                     const localData = window.siyuan.storage[Constants.LOCAL_SEARCHKEYS];
@@ -1072,7 +1072,8 @@ export const getQueryTip = (method: number) => {
     return methodTip;
 };
 
-const updateConfig = (element: Element, item: Config.IUILayoutTabSearchConfig, config: Config.IUILayoutTabSearchConfig, edit: Protyle) => {
+const updateConfig = (element: Element, item: Config.IUILayoutTabSearchConfig, config: Config.IUILayoutTabSearchConfig,
+                      edit: Protyle, clear = false) => {
     const dialogElement = hasClosestByClassName(element, "b3-dialog--open");
     if (dialogElement && dialogElement.getAttribute("data-key") === Constants.DIALOG_SEARCH) {
         // https://github.com/siyuan-note/siyuan/issues/6828
@@ -1123,7 +1124,9 @@ const updateConfig = (element: Element, item: Config.IUILayoutTabSearchConfig, c
     } else {
         searchIncludeElement.setAttribute("disabled", "disabled");
     }
-    (element.querySelector("#searchInput") as HTMLInputElement).value = item.k;
+    if (item.k || clear) {
+        (element.querySelector("#searchInput") as HTMLInputElement).value = item.k;
+    }
     (element.querySelector("#replaceInput") as HTMLInputElement).value = item.r;
     element.querySelector("#searchSyntaxCheck").setAttribute("aria-label", getQueryTip(item.method));
     Object.assign(config, item);
@@ -1179,6 +1182,11 @@ export const getArticle = (options: {
                 size: zoomIn ? Constants.SIZE_GET_MAX : window.siyuan.config.editor.dynamicLoadBlocks,
                 zoom: zoomIn,
             }, getResponse => {
+                options.edit.protyle.query = {
+                    key: options.value || null,
+                    method: options.config?.method || null,
+                    types: options.config?.types || null,
+                };
                 onGet({
                     updateReadonly: true,
                     data: getResponse,
@@ -1189,7 +1197,11 @@ export const getArticle = (options: {
                 if (matchElement) {
                     matchElement.classList.add("search-mark--hl");
                     const contentRect = options.edit.protyle.contentElement.getBoundingClientRect();
-                    options.edit.protyle.contentElement.scrollTop = options.edit.protyle.contentElement.scrollTop + matchElement.getBoundingClientRect().top - contentRect.top - contentRect.height / 2;
+                    const matchRectTop = matchElement.getBoundingClientRect().top;  // 需前置，否则代码高亮后会移除该元素
+                    setTimeout(() => {
+                        // 等待 scrollCenter 定位后再滚动
+                        options.edit.protyle.contentElement.scrollTop = options.edit.protyle.contentElement.scrollTop + matchRectTop - contentRect.top - contentRect.height / 2;
+                    });
                 }
             });
         });

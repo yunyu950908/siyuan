@@ -450,7 +450,6 @@ export class Backlink extends Model {
                     backlinkData: isMention ? response.data.backmentions : response.data.backlinks,
                     render: {
                         background: false,
-                        title: false,
                         gutter: true,
                         scroll: false,
                         breadcrumb: false,
@@ -587,7 +586,7 @@ export class Backlink extends Model {
                 backlinkMOpenIds: [],
                 backlinkMStatus: 3
             };
-            if (data.mentionsCount === 0) {
+            if (data.mentionsCount === 0 || window.siyuan.config.editor.backmentionExpandCount === -1) {
                 this.status[this.blockId].backlinkMStatus = 3;
             } else {
                 Array.from({length: window.siyuan.config.editor.backmentionExpandCount}).forEach((item, index) => {

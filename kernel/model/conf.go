@@ -28,11 +28,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/88250/go-humanize"
 	"github.com/88250/gulu"
 	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
 	"github.com/Xuanwo/go-locale"
-	"github.com/dustin/go-humanize"
 	"github.com/getsentry/sentry-go"
 	"github.com/sashabaranov/go-openai"
 	"github.com/siyuan-community/siyuan/kernel/conf"
@@ -82,6 +82,8 @@ type AppConf struct {
 	Snippet        *conf.Snpt       `json:"snippet"`        // 代码片段
 	State          int              `json:"state"`          // 运行状态，0：已经正常退出，1：运行中
 
+	Community *conf.Community `json:"community"` // 社区配置
+
 	m *sync.Mutex
 }
 
@@ -112,23 +114,17 @@ func (conf *AppConf) SetUser(user *conf.User) {
 func InitConf() {
 	initLang()
 
-	windowStateConf := filepath.Join(util.ConfDir, "windowState.json")
-	if !gulu.File.IsExist(windowStateConf) {
-		if err := gulu.File.WriteFileSafer(windowStateConf, []byte("{}"), 0644); nil != err {
-			logging.LogErrorf("create [windowState.json] failed: %s", err)
-		}
-	}
-
 	Conf = &AppConf{LogLevel: "debug", m: &sync.Mutex{}}
 	confPath := filepath.Join(util.ConfDir, "conf.json")
 	if gulu.File.IsExist(confPath) {
-		data, err := os.ReadFile(confPath)
-		if nil != err {
+		if data, err := os.ReadFile(confPath); nil != err {
 			logging.LogErrorf("load conf [%s] failed: %s", confPath, err)
-		}
-		err = gulu.JSON.UnmarshalJSON(data, Conf)
-		if err != nil {
-			logging.LogErrorf("parse conf [%s] failed: %s", confPath, err)
+		} else {
+			if err = gulu.JSON.UnmarshalJSON(data, Conf); err != nil {
+				logging.LogErrorf("parse conf [%s] failed: %s", confPath, err)
+			} else {
+				logging.LogInfof("loaded conf [%s]", confPath)
+			}
 		}
 	}
 
@@ -217,12 +213,6 @@ func InitConf() {
 		Conf.FileTree.MaxOpenTabCount = 32
 	}
 	Conf.FileTree.DocCreateSavePath = strings.TrimSpace(Conf.FileTree.DocCreateSavePath)
-	if "../" == Conf.FileTree.DocCreateSavePath {
-		Conf.FileTree.DocCreateSavePath = "../Untitled"
-	}
-	if "/" == Conf.FileTree.DocCreateSavePath {
-		Conf.FileTree.DocCreateSavePath = "/Untitled"
-	}
 	util.UseSingleLineSave = Conf.FileTree.UseSingleLineSave
 
 	util.CurrentCloudRegion = Conf.CloudRegion
@@ -264,9 +254,13 @@ func InitConf() {
 	if 0 > Conf.Editor.BacklinkExpandCount {
 		Conf.Editor.BacklinkExpandCount = 0
 	}
-	if 0 > Conf.Editor.BackmentionExpandCount {
-		Conf.Editor.BackmentionExpandCount = 0
+	if -1 > Conf.Editor.BackmentionExpandCount {
+		Conf.Editor.BackmentionExpandCount = -1
 	}
+	if nil == Conf.Editor.Markdown {
+		Conf.Editor.Markdown = &util.Markdown{}
+	}
+	util.MarkdownSettings = Conf.Editor.Markdown
 
 	if nil == Conf.Export {
 		Conf.Export = conf.NewExport()
@@ -285,7 +279,9 @@ func InitConf() {
 
 	if nil == Conf.System {
 		Conf.System = conf.NewSystem()
-		Conf.OpenHelp = true
+		if util.ContainerIOS != util.Container {
+			Conf.OpenHelp = true
+		}
 	} else {
 		if 0 < semver.Compare("v"+util.Ver, "v"+Conf.System.KernelVersion) {
 			logging.LogInfof("upgraded from version [%s] to [%s]", Conf.System.KernelVersion, util.Ver)
@@ -455,6 +451,10 @@ func InitConf() {
 			Conf.AI.OpenAI.APIMaxTokens,
 			Conf.AI.OpenAI.APITemperature,
 			Conf.AI.OpenAI.APIMaxContexts)
+	}
+
+	if nil == Conf.Community {
+		Conf.Community = conf.NewCommunity()
 	}
 
 	Conf.ReadOnly = util.ReadOnly
@@ -629,7 +629,7 @@ func Close(force, setCurrentWorkspace bool, execInstallPkg int) (exitCode int) {
 	Conf.Close()
 	sql.CloseDatabase()
 	treenode.SaveBlockTree(false)
-	SaveAssetsTexts()
+	util.SaveAssetsTexts()
 	clearWorkspaceTemp()
 	clearCorruptedNotebooks()
 	clearPortJSON()
@@ -851,7 +851,7 @@ func InitBoxes() {
 
 	var dbSize string
 	if dbFile, err := os.Stat(util.DBPath); nil == err {
-		dbSize = humanize.Bytes(uint64(dbFile.Size()))
+		dbSize = humanize.BytesCustomCeil(uint64(dbFile.Size()), 2)
 	}
 	logging.LogInfof("database size [%s], tree/block count [%d/%d]", dbSize, treenode.CountTrees(), treenode.CountBlocks())
 }

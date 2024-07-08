@@ -9,6 +9,7 @@ import {openNewWindowById} from "../window/openNewWindow";
 /// #endif
 /// #if !MOBILE
 import {moveResize} from "../dialog/moveResize";
+import {openFileById} from "../editor/util";
 /// #endif
 import {fetchPost} from "../util/fetch";
 import {showMessage} from "../dialog/message";
@@ -118,6 +119,14 @@ export class BlockPanel {
                         /// #if !BROWSER
                         openNewWindowById(this.nodeIds[0]);
                         /// #endif
+                    } else if (type === "stickTab") {
+                        /// #if !BROWSER
+                        openFileById({
+                            app: options.app,
+                            id: this.nodeIds[0],
+                            action: this.editors[0].protyle.block.rootID !== this.nodeIds[0] ? [Constants.CB_GET_ALL] : [Constants.CB_GET_CONTEXT],
+                        });
+                        /// #endif
                     }
                     event.preventDefault();
                     event.stopPropagation();
@@ -157,7 +166,7 @@ export class BlockPanel {
                 action.push(Constants.CB_GET_ALL);
             } else {
                 action.push(Constants.CB_GET_CONTEXT);
-                action.push(Constants.CB_GET_HL);
+                // 不需要高亮 https://github.com/siyuan-note/siyuan/issues/11160#issuecomment-2084652764
             }
 
             if (this.isBacklink) {
@@ -231,7 +240,9 @@ export class BlockPanel {
         let openHTML = "";
         /// #if !BROWSER
         if (this.nodeIds.length === 1) {
-            openHTML = `<span data-type="open" class="block__icon block__icon--show b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.openByNewWindow}"><svg><use xlink:href="#iconOpenWindow"></use></svg></span>
+            openHTML = `<span data-type="stickTab" class="block__icon block__icon--show b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.openInNewTab}"><svg><use xlink:href="#iconLayoutRight"></use></svg></span>
+<span class="fn__space"></span>
+<span data-type="open" class="block__icon block__icon--show b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.openByNewWindow}"><svg><use xlink:href="#iconOpenWindow"></use></svg></span>
 <span class="fn__space"></span>`;
         }
         /// #endif

@@ -6,10 +6,11 @@ import {Constants} from "../constants";
 import {exportLayout, resetLayout} from "../layout/util";
 import {isBrowser} from "../util/functions";
 import {fetchPost} from "../util/fetch";
-import {genOptions} from "../util/genOptions";
+import {genLangOptions, genOptions} from "../util/genOptions";
 import {openSnippets} from "./util/snippets";
 import {loadAssets} from "../util/assets";
 import {resetFloatDockSize} from "../layout/dock/util";
+import {confirmDialog} from "../dialog/confirmDialog";
 
 export const appearance = {
     element: undefined as Element,
@@ -94,7 +95,7 @@ export const appearance = {
         <div class="b3-label__text">${window.siyuan.languages.language1}</div>
     </div>
     <span class="fn__space"></span>
-    <select id="lang" class="b3-select fn__flex-center fn__size200">${genOptions(window.siyuan.config.langs, window.siyuan.config.appearance.lang)}</select>
+    <select id="lang" class="b3-select fn__flex-center fn__size200">${genLangOptions(window.siyuan.config.langs, window.siyuan.config.appearance.lang)}</select>
 </div>
 <div class="b3-label config__item${isBrowser() ? " fn__none" : " fn__flex"}">
     <div class="fn__flex-1">
@@ -212,7 +213,9 @@ export const appearance = {
             openSnippets();
         });
         appearance.element.querySelector("#resetLayout").addEventListener("click", () => {
-            resetLayout();
+            confirmDialog("⚠️ " + window.siyuan.languages.reset, window.siyuan.languages.appearance6, () => {
+                resetLayout();
+            });
         });
         /// #if !BROWSER
         appearance.element.querySelector("#appearanceOpenIcon").addEventListener("click", () => {

@@ -35,6 +35,7 @@ import (
 	"github.com/88250/gulu"
 	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
+	"github.com/88250/lute/html"
 	"github.com/88250/lute/lex"
 	"github.com/88250/lute/parse"
 	"github.com/88250/vitess-sqlparser/sqlparser"
@@ -643,55 +644,55 @@ func FindReplace(keyword, replacement string, replaceTypes map[string]bool, ids 
 							return ast.WalkContinue
 						}
 
-						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r)
+						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r, "em")
 					} else if n.IsTextMarkType("strong") {
 						if !replaceTypes["strong"] {
 							return ast.WalkContinue
 						}
 
-						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r)
+						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r, "strong")
 					} else if n.IsTextMarkType("kbd") {
 						if !replaceTypes["kbd"] {
 							return ast.WalkContinue
 						}
 
-						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r)
+						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r, "kbd")
 					} else if n.IsTextMarkType("mark") {
 						if !replaceTypes["mark"] {
 							return ast.WalkContinue
 						}
 
-						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r)
+						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r, "mark")
 					} else if n.IsTextMarkType("s") {
 						if !replaceTypes["s"] {
 							return ast.WalkContinue
 						}
 
-						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r)
+						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r, "s")
 					} else if n.IsTextMarkType("sub") {
 						if !replaceTypes["sub"] {
 							return ast.WalkContinue
 						}
 
-						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r)
+						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r, "sub")
 					} else if n.IsTextMarkType("sup") {
 						if !replaceTypes["sup"] {
 							return ast.WalkContinue
 						}
 
-						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r)
+						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r, "sup")
 					} else if n.IsTextMarkType("tag") {
 						if !replaceTypes["tag"] {
 							return ast.WalkContinue
 						}
 
-						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r)
+						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r, "tag")
 					} else if n.IsTextMarkType("u") {
 						if !replaceTypes["u"] {
 							return ast.WalkContinue
 						}
 
-						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r)
+						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r, "u")
 					} else if n.IsTextMarkType("inline-math") {
 						if !replaceTypes["inlineMath"] {
 							return ast.WalkContinue
@@ -726,7 +727,7 @@ func FindReplace(keyword, replacement string, replaceTypes map[string]bool, ids 
 							return ast.WalkContinue
 						}
 
-						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r)
+						replaceNodeTextMarkTextContent(n, method, keyword, replacement, r, "text")
 					}
 				}
 				return ast.WalkContinue
@@ -761,8 +762,13 @@ func FindReplace(keyword, replacement string, replaceTypes map[string]bool, ids 
 	return
 }
 
-func replaceNodeTextMarkTextContent(n *ast.Node, method int, keyword string, replacement string, r *regexp.Regexp) {
+func replaceNodeTextMarkTextContent(n *ast.Node, method int, keyword string, replacement string, r *regexp.Regexp, typ string) {
 	if 0 == method {
+		if "tag" == typ {
+			keyword = strings.TrimPrefix(keyword, "#")
+			keyword = strings.TrimSuffix(keyword, "#")
+		}
+
 		if strings.Contains(n.TextMarkTextContent, keyword) {
 			n.TextMarkTextContent = strings.ReplaceAll(n.TextMarkTextContent, keyword, replacement)
 		}
@@ -797,14 +803,14 @@ func replaceTextNode(text *ast.Node, method int, keyword string, replacement str
 		}
 	} else if 3 == method {
 		if nil != r && r.MatchString(string(text.Tokens)) {
-			newContent := bytes.ReplaceAll(text.Tokens, []byte(keyword), []byte(replacement))
+			newContent := []byte(r.ReplaceAllString(string(text.Tokens), replacement))
 			tree := parse.Inline("", newContent, luteEngine.ParseOptions)
 			if nil == tree.Root.FirstChild {
 				return false
 			}
 
 			var replaceNodes []*ast.Node
-			for rNode := tree.Root.FirstChild; nil != rNode; rNode = rNode.Next {
+			for rNode := tree.Root.FirstChild.FirstChild; nil != rNode; rNode = rNode.Next {
 				replaceNodes = append(replaceNodes, rNode)
 			}
 
@@ -847,7 +853,7 @@ func FullTextSearchBlock(query string, boxes, paths []string, types map[string]b
 
 	beforeLen := 36
 	var blocks []*Block
-	orderByClause := buildOrderBy(method, orderBy)
+	orderByClause := buildOrderBy(query, method, orderBy)
 	switch method {
 	case 1: // 查询语法
 		filter := buildTypeFilter(types)
@@ -986,7 +992,7 @@ func buildPathsFilter(paths []string) string {
 	return builder.String()
 }
 
-func buildOrderBy(method, orderBy int) string {
+func buildOrderBy(query string, method, orderBy int) string {
 	switch orderBy {
 	case 1:
 		return "ORDER BY created ASC"
@@ -1008,7 +1014,14 @@ func buildOrderBy(method, orderBy int) string {
 		}
 		return "ORDER BY rank" // 默认是按相关度降序
 	default:
-		return "ORDER BY sort ASC, updated DESC" // Improve search default sort https://github.com/siyuan-note/siyuan/issues/8624
+		clause := "ORDER BY CASE " +
+			"WHEN name = '${keyword}' THEN 10 " +
+			"WHEN alias = '${keyword}' THEN 20 " +
+			"WHEN name LIKE '%${keyword}%' THEN 50 " +
+			"WHEN alias LIKE '%${keyword}%' THEN 60 " +
+			"ELSE 65535 END ASC, sort ASC, updated DESC"
+		clause = strings.ReplaceAll(clause, "${keyword}", strings.ReplaceAll(query, "'", "''"))
+		return clause
 	}
 }
 
@@ -1140,21 +1153,21 @@ func fullTextSearchRefBlock(keyword string, beforeLen int, onlyDoc bool) (ret []
 		stmt += notLike.String()
 	}
 
-	orderBy := ` order by case
-             when name = '${keyword}' then 10
-             when alias = '${keyword}' then 20
-             when memo = '${keyword}' then 30
-             when content = '${keyword}' and type = 'd' then 40
-             when content LIKE '%${keyword}%' and type = 'd' then 41
-             when name LIKE '%${keyword}%' then 50
-             when alias LIKE '%${keyword}%' then 60
-             when content = '${keyword}' and type = 'h' then 70
-             when content LIKE '%${keyword}%' and type = 'h' then 71
-             when fcontent = '${keyword}' and type = 'i' then 80
-             when fcontent LIKE '%${keyword}%' and type = 'i' then 81
-             when memo LIKE '%${keyword}%' then 90
-             when content LIKE '%${keyword}%' and type != 'i' and type != 'l' then 100
-             else 65535 end ASC, sort ASC, length ASC`
+	orderBy := ` ORDER BY CASE
+             WHEN name = '${keyword}' THEN 10
+             WHEN alias = '${keyword}' THEN 20
+             WHEN memo = '${keyword}' THEN 30
+             WHEN content = '${keyword}' and type = 'd' THEN 40
+             WHEN content LIKE '%${keyword}%' and type = 'd' THEN 41
+             WHEN name LIKE '%${keyword}%' THEN 50
+             WHEN alias LIKE '%${keyword}%' THEN 60
+             WHEN content = '${keyword}' and type = 'h' THEN 70
+             WHEN content LIKE '%${keyword}%' and type = 'h' THEN 71
+             WHEN fcontent = '${keyword}' and type = 'i' THEN 80
+             WHEN fcontent LIKE '%${keyword}%' and type = 'i' THEN 81
+             WHEN memo LIKE '%${keyword}%' THEN 90
+             WHEN content LIKE '%${keyword}%' and type != 'i' and type != 'l' THEN 100
+             ELSE 65535 END ASC, sort ASC, length ASC`
 	orderBy = strings.ReplaceAll(orderBy, "${keyword}", strings.ReplaceAll(keyword, "'", "''"))
 	stmt += orderBy + " LIMIT " + strconv.Itoa(Conf.Search.Limit)
 	blocks := sql.SelectBlocksRawStmtNoParse(stmt, Conf.Search.Limit)
@@ -1533,8 +1546,8 @@ func stringQuery(query string) string {
 
 // markReplaceSpan 用于处理搜索高亮。
 func markReplaceSpan(n *ast.Node, unlinks *[]*ast.Node, keywords []string, markSpanDataType string, luteEngine *lute.Lute) bool {
-	text := n.Content()
 	if ast.NodeText == n.Type {
+		text := n.Content()
 		escapedText := util.EscapeHTML(text)
 		escapedKeywords := make([]string, len(keywords))
 		for i, keyword := range keywords {
@@ -1562,6 +1575,17 @@ func markReplaceSpan(n *ast.Node, unlinks *[]*ast.Node, keywords []string, markS
 
 		if n.IsTextMarkType("inline-math") || n.IsTextMarkType("inline-memo") {
 			return false
+		}
+
+		var text string
+		if n.IsTextMarkType("code") {
+			// code 在前面的 n.
+			for i, k := range keywords {
+				keywords[i] = html.EscapeString(k)
+			}
+			text = n.TextMarkTextContent
+		} else {
+			text = n.Content()
 		}
 
 		startTag := search.GetMarkSpanStart(markSpanDataType)

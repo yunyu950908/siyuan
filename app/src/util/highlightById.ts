@@ -32,7 +32,7 @@ export const highlightById = (protyle: IProtyle, id: string, top = false) => {
         bgFade(nodeElement);
         return nodeElement;// 仅配合前进后退使用
     }
-    if (id === protyle.block.rootID && protyle.options.render.title) {
+    if (id === protyle.block.rootID && protyle.options.render.title && protyle.title.editElement) {
         bgFade(protyle.title.editElement);
         return protyle.title.editElement;
     }
@@ -62,7 +62,9 @@ export const scrollCenter = (protyle: IProtyle, nodeElement?: Element, top = fal
         }
     }
 
-    if (!nodeElement) {
+    if (!nodeElement &&
+        // https://github.com/siyuan-note/siyuan/issues/11175
+        document.activeElement?.tagName !== "TEXTAREA" && document.activeElement?.tagName !== "INPUT") {
         nodeElement = hasClosestBlock(getEditorRange(protyle.wysiwyg.element).startContainer) as HTMLElement;
     }
     if (!nodeElement) {

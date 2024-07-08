@@ -36,13 +36,14 @@ var (
 	operationQueue []*dbQueueOperation
 	dbQueueLock    = sync.Mutex{}
 	txLock         = sync.Mutex{}
+	isWriting      = false
 )
 
 type dbQueueOperation struct {
 	inQueueTime                   time.Time
-	action                        string      // upsert/delete/delete_id/rename/rename_sub_tree/delete_box/delete_box_refs/insert_refs/index/delete_ids/update_block_content/delete_assets
+	action                        string      // upsert/delete/delete_id/rename/rename_sub_tree/delete_box/delete_box_refs/index/delete_ids/update_block_content/delete_assets
 	indexTree                     *parse.Tree // index
-	upsertTree                    *parse.Tree // upsert/insert_refs/update_refs/delete_refs
+	upsertTree                    *parse.Tree // upsert/update_refs/delete_refs
 	removeTreeBox, removeTreePath string      // delete
 	removeTreeID                  string      // delete_id
 	removeTreeIDs                 []string    // delete_ids
@@ -77,7 +78,7 @@ func isWritingDatabase() bool {
 	time.Sleep(util.SQLFlushInterval + 50*time.Millisecond)
 	dbQueueLock.Lock()
 	defer dbQueueLock.Unlock()
-	if 0 < len(operationQueue) {
+	if 0 < len(operationQueue) || isWriting {
 		return true
 	}
 	return false
@@ -103,7 +104,11 @@ func FlushQueue() {
 	}
 
 	txLock.Lock()
-	defer txLock.Unlock()
+	isWriting = true
+	defer func() {
+		isWriting = false
+		txLock.Unlock()
+	}()
 
 	start := time.Now()
 
@@ -185,8 +190,6 @@ func execOp(op *dbQueueOperation, tx *sql.Tx, context map[string]interface{}) (e
 		err = deleteByBoxTx(tx, op.box)
 	case "delete_box_refs":
 		err = deleteRefsByBoxTx(tx, op.box)
-	case "insert_refs":
-		err = insertRefs(tx, op.upsertTree)
 	case "update_refs":
 		err = upsertRefs(tx, op.upsertTree)
 	case "delete_refs":
@@ -266,20 +269,6 @@ func UpdateRefsTreeQueue(tree *parse.Tree) {
 	newOp := &dbQueueOperation{upsertTree: tree, inQueueTime: time.Now(), action: "update_refs"}
 	for i, op := range operationQueue {
 		if "update_refs" == op.action && op.upsertTree.ID == tree.ID {
-			operationQueue[i] = newOp
-			return
-		}
-	}
-	operationQueue = append(operationQueue, newOp)
-}
-
-func InsertRefsTreeQueue(tree *parse.Tree) {
-	dbQueueLock.Lock()
-	defer dbQueueLock.Unlock()
-
-	newOp := &dbQueueOperation{upsertTree: tree, inQueueTime: time.Now(), action: "insert_refs"}
-	for i, op := range operationQueue {
-		if "insert_refs" == op.action && op.upsertTree.ID == tree.ID {
 			operationQueue[i] = newOp
 			return
 		}

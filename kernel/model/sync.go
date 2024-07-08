@@ -29,10 +29,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/88250/go-humanize"
 	"github.com/88250/gulu"
 	"github.com/88250/lute/html"
-	"github.com/dustin/go-humanize"
 	"github.com/gorilla/websocket"
+	"github.com/siyuan-community/siyuan/kernel/cache"
 	"github.com/siyuan-community/siyuan/kernel/conf"
 	"github.com/siyuan-community/siyuan/kernel/filesys"
 	"github.com/siyuan-community/siyuan/kernel/sql"
@@ -306,6 +307,12 @@ func removeIndexes(removeFilePaths []string) (removeRootIDs []string) {
 			util.IncBootProgress(bootProgressPart, msg)
 			util.PushStatusBar(msg)
 
+			bts := treenode.GetBlockTreesByRootID(block.RootID)
+			for _, b := range bts {
+				cache.RemoveBlockIAL(b.ID)
+			}
+			cache.RemoveDocIAL(block.Path)
+
 			treenode.RemoveBlockTreesByRootID(block.RootID)
 			sql.RemoveTreeQueue(block.RootID)
 		}
@@ -347,6 +354,13 @@ func upsertIndexes(upsertFilePaths []string) (upsertRootIDs []string) {
 		}
 		treenode.IndexBlockTree(tree)
 		sql.UpsertTreeQueue(tree)
+
+		bts := treenode.GetBlockTreesByRootID(tree.ID)
+		for _, b := range bts {
+			cache.RemoveBlockIAL(b.ID)
+		}
+		cache.RemoveDocIAL(tree.Path)
+
 		upsertRootIDs = append(upsertRootIDs, tree.Root.ID)
 	}
 
@@ -543,13 +557,13 @@ func ListCloudSyncDir() (syncDirs []*Sync, hSize string, err error) {
 			CloudName: d.Name,
 		}
 		if conf.ProviderSiYuan == Conf.Sync.Provider {
-			sync.HSize = humanize.Bytes(uint64(dirSize))
+			sync.HSize = humanize.BytesCustomCeil(uint64(dirSize), 2)
 		}
 		syncDirs = append(syncDirs, sync)
 	}
 	hSize = "-"
 	if conf.ProviderSiYuan == Conf.Sync.Provider {
-		hSize = humanize.Bytes(uint64(size))
+		hSize = humanize.BytesCustomCeil(uint64(size), 2)
 	}
 	return
 }
@@ -619,6 +633,7 @@ func getSyncIgnoreLines() (ret []string) {
 	ret = append(ret, "20210808180117-6v0mkxr/**/*")
 	ret = append(ret, "20210808180117-czj9bvb/**/*")
 	ret = append(ret, "20211226090932-5lcq56f/**/*")
+	ret = append(ret, "20240530133126-axarxgx/**/*")
 
 	ret = gulu.Str.RemoveDuplicatedElem(ret)
 	return

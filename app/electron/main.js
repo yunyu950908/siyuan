@@ -46,6 +46,7 @@ const args = new Map(process.argv.map(arg => {
         ? [fragments[0], true]
         : [fragments[0], fragments.slice(1).join("=")];
 }));
+const LOOPBACK_ADDRESS = "127.0.0.1";
 
 let baseURL;
 let bootWindow;
@@ -54,7 +55,7 @@ let localhost = true;
 let firstOpen = false;
 let workspaces = []; // workspaceDir, id, browserWindow, tray
 let kernelProtocol = "http";
-let kernelHostname = "127.0.0.1";
+let kernelHostname = LOOPBACK_ADDRESS;
 let kernelPort = 6806;
 let resetWindowStateOnRestart = false;
 
@@ -82,7 +83,11 @@ const getServer = (port = kernelPort) => {
         : baseURL;
 }
 
-const  windowNavigate = (currentWindow) => {
+const kernelExit = (origin = getServer()) => {
+    return net.fetch(`${origin}/api/system/exit`, {method: "POST"})
+}
+
+const windowNavigate = (currentWindow) => {
     currentWindow.webContents.on("will-navigate", (event) => {
         const url = event.url;
         if (url.startsWith(getServer())) {
@@ -244,18 +249,18 @@ const writeLog = (out) => {
     }
 };
 
-const boot = () => {
-    let windowStateInitialized = true;
+let openAsHidden = false;
+const isOpenAsHidden = function () {
+    return 1 === workspaces.length && openAsHidden;
+};
+
+const initMainWindow = () => {
     // 恢复主窗体状态
     let oldWindowState = {};
     try {
         oldWindowState = JSON.parse(fs.readFileSync(windowStatePath, "utf8"));
-        if (!oldWindowState.x) {
-            windowStateInitialized = false;
-        }
     } catch (e) {
         fs.writeFileSync(windowStatePath, "{}");
-        windowStateInitialized = false;
     }
     let defaultWidth;
     let defaultHeight;
@@ -277,8 +282,9 @@ const boot = () => {
         height: defaultHeight,
     }, oldWindowState);
 
-    // writeLog("windowStat [width=" + windowState.width + ", height=" + windowState.height + "], default [width=" + defaultWidth + ", height=" + defaultHeight + "], workArea [width=" + workArea.width + ", height=" + workArea.height + "]");
+    writeLog("windowStat [x=" + windowState.x + ", y=" + windowState.y + ", width=" + windowState.width + ", height=" + windowState.height + "], default [width=" + defaultWidth + ", height=" + defaultHeight + "], workArea [width=" + workArea.width + ", height=" + workArea.height + "]");
 
+    let resetToCenter = false;
     let x = windowState.x;
     let y = windowState.y;
     if (workArea) {
@@ -287,24 +293,21 @@ const boot = () => {
             windowState.width = Math.min(defaultWidth, workArea.width);
             windowState.height = Math.min(defaultHeight, workArea.height);
         }
-        if (x > workArea.width) {
-            x = 0;
-        }
-        if (y > workArea.height) {
-            y = 0;
+
+        if (x >= workArea.width * 0.8 || y >= workArea.height * 0.8) {
+            resetToCenter = true;
         }
     }
+
+    if (x < 0 || y < 0) {
+        resetToCenter = true;
+    }
+
     if (windowState.width < 493) {
         windowState.width = 493;
     }
     if (windowState.height < 376) {
         windowState.height = 376;
-    }
-    if (x < 0) {
-        x = 0;
-    }
-    if (y < 0) {
-        y = 0;
     }
 
     // 创建主窗体
@@ -330,7 +333,7 @@ const boot = () => {
     });
     remote.enable(currentWindow.webContents);
 
-    windowStateInitialized ? currentWindow.setPosition(x, y) : currentWindow.center();
+    resetToCenter ? currentWindow.center() : currentWindow.setPosition(x, y);
     currentWindow.webContents.userAgent = "SiYuan/" + appVer + " https://b3log.org/siyuan Electron " + currentWindow.webContents.userAgent;
 
     if (localhost && !proxyURL) {
@@ -403,11 +406,15 @@ const boot = () => {
 
     // 主界面事件监听
     currentWindow.once("ready-to-show", () => {
-        currentWindow.show();
-        if (windowState.isMaximized) {
-            currentWindow.maximize();
+        if (isOpenAsHidden()) {
+            currentWindow.minimize();
         } else {
-            currentWindow.unmaximize();
+            currentWindow.show();
+            if (windowState.isMaximized) {
+                currentWindow.maximize();
+            } else {
+                currentWindow.unmaximize();
+            }
         }
         if (bootWindow && !bootWindow.isDestroyed()) {
             bootWindow.destroy();
@@ -461,10 +468,12 @@ const showWindow = (wnd) => {
 const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) => {
     return new Promise(async (resolve) => {
         bootWindow = new BrowserWindow({
+            show: false,
             width: Math.floor(screen.getPrimaryDisplay().size.width / 2),
             height: Math.floor(screen.getPrimaryDisplay().workAreaSize.height / 2),
             frame: false,
             backgroundColor: "#1e1e1e",
+            resizable: false,
             icon: path.join(appDir, "stage", "icon-large.png"),
         });
         let bootIndex = path.join(appDir, "app", "electron", "boot.html");
@@ -472,7 +481,11 @@ const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) =
             bootIndex = path.join(appDir, "electron", "boot.html");
         }
         bootWindow.loadFile(bootIndex, {query: {v: appVer}});
-        bootWindow.show();
+        if (openAsHidden) {
+            bootWindow.minimize();
+        } else {
+            bootWindow.show();
+        }
 
         const kernelName = "win32" === process.platform ? "SiYuan-Kernel.exe" : "SiYuan-Kernel";
         const kernelPath = path.join(appDir, "kernel", kernelName);
@@ -566,7 +579,7 @@ const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) =
                             errorWindowId = showErrorWindow("⚠️ 初始化工作空间失败 Failed to create workspace directory", "<div>初始化工作空间失败。</div><div>Failed to init workspace.</div>");
                             break;
                         case 26:
-                            errorWindowId = showErrorWindow("🚒 已成功避免潜在的数据损坏<br>Successfully avoid potential data corruption", "<div>工作空间下的文件正在被第三方软件（比如同步盘 iCloud/OneDrive/Dropbox/Google Drive/坚果云/百度网盘/腾讯微云等）扫描读取占用，继续使用会导致数据损坏，思源内核已经安全退出。<br><br>请将工作空间移动到其他路径后再打开，停止同步盘同步工作空间。如果以上步骤无法解决问题，请参考<a href=\"https://ld246.com/article/1684586140917\">这里</a>或者<a href=\"https://ld246.com/article/1649901726096\" target=\"_blank\">发帖</a>寻求帮助。</div><hr><div>The files in the workspace are being scanned and read by third-party software (such as sync disk iCloud/OneDrive/Dropbox/Google Drive/Nutstore/Baidu Netdisk/Tencent Weiyun, etc.), continuing to use it will cause data corruption, and the SiYuan kernel is already safe shutdown.<br><br>Move the workspace to another path and open it again, stop the sync disk to sync the workspace. If the above steps do not resolve the issue, please look for help or report bugs <a href=\"https://liuyun.io/article/1686530886208\" target=\"_blank\">here</a>.</div>");
+                            errorWindowId = showErrorWindow("🚒 已成功避免潜在的数据损坏<br>Successfully avoid potential data corruption", "<div>工作空间下的文件正在被第三方软件（比如同步盘 iCloud/OneDrive/Dropbox/Google Drive/坚果云/百度网盘/腾讯微云等）扫描读取占用，继续使用会导致数据损坏，思源内核已经安全退出。<br><br>请将工作空间移动到其他路径后再打开，停止同步盘同步工作空间。如果以上步骤无法解决问题，请参考<a href=\"https://ld246.com/article/1684586140917\" target=\"_blank\">这里</a>或者<a href=\"https://ld246.com/article/1649901726096\" target=\"_blank\">发帖</a>寻求帮助。</div><hr><div>The files in the workspace are being scanned and read by third-party software (such as sync disk iCloud/OneDrive/Dropbox/Google Drive/Nutstore/Baidu Netdisk/Tencent Weiyun, etc.), continuing to use it will cause data corruption, and the SiYuan kernel is already safe shutdown.<br><br>Move the workspace to another path and open it again, stop the sync disk to sync the workspace. If the above steps do not resolve the issue, please look for help or report bugs <a href=\"https://liuyun.io/article/1686530886208\" target=\"_blank\">here</a>.</div>");
                             break;
                         case 0:
                             break;
@@ -589,9 +602,7 @@ const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) =
             try {
                 const apiResult = await net.fetch(getServer() + "/api/system/version");
                 apiData = await apiResult.json();
-                bootWindow.setResizable(false);
                 bootWindow.loadURL(getServer() + "/appearance/boot/index.html");
-                bootWindow.show();
                 break;
             } catch (e) {
                 writeLog("get kernel version failed: " + e.message);
@@ -610,7 +621,9 @@ const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) =
             writeLog("got kernel version [" + apiData.data + "]");
             if (!isDevEnv && apiData.data !== appVer) {
                 writeLog(`kernel [${apiData.data}] is running, shutdown it now and then start kernel [${appVer}]`);
-                net.fetch(getServer() + "/api/system/exit", {method: "POST"});
+                if (localhost) {
+                    kernelExit();
+                }
                 bootWindow.destroy();
                 resolve(false);
             } else {
@@ -627,7 +640,9 @@ const initKernel = (workspace, port, lang, tlsKernel, tlsCertFile, tlsKeyFile) =
                         }
                     } catch (e) {
                         writeLog("get boot progress failed: " + e.message);
-                        net.fetch(getServer() + "/api/system/exit", {method: "POST"});
+                        if (localhost) {
+                            kernelExit();
+                        }
                         bootWindow.destroy();
                         resolve(false);
                         progressing = true;
@@ -655,9 +670,11 @@ let argStart = 1;
 if (!app.isPackaged) {
     argStart = 2;
 }
+
 for (let i = argStart; i < process.argv.length; i++) {
     let arg = process.argv[i];
     if (arg.startsWith("siyuan://")
+        || arg.startsWith("--openAsHidden")
         || arg.startsWith("--workspace=")
         || arg.startsWith("--port=")
         || arg.startsWith("--proxy=")
@@ -669,6 +686,10 @@ for (let i = argStart; i < process.argv.length; i++) {
         || arg.startsWith("--tls-cert-file")
     ) {
         // 跳过内置参数
+        if (arg.startsWith("--openAsHidden")) {
+            openAsHidden = true;
+            writeLog("open as hidden");
+        }
         continue;
     }
 
@@ -851,7 +872,7 @@ app.whenReady().then(() => {
             event.sender.send("siyuan-event", "leave-full-screen");
         });
     });
-    ipcMain.on("siyuan-cmd", async (event, data) => {
+    ipcMain.on("siyuan-cmd", (event, data) => {
         let cmd = data;
         let webContentsId = event.sender.id;
         if (typeof data !== "string") {
@@ -936,6 +957,9 @@ app.whenReady().then(() => {
                     return;
                 }
                 currentWindow.destroy();
+                break;
+            case "writeLog":
+                writeLog(data.msg);
                 break;
             case "closeButtonBehavior":
                 if (!currentWindow) {
@@ -1059,7 +1083,7 @@ app.whenReady().then(() => {
         if (!foundWorkspace) {
             initKernel(data.workspace, "", "").then((isSucc) => {
                 if (isSucc) {
-                    boot();
+                    initMainWindow();
                 }
             });
         }
@@ -1155,7 +1179,10 @@ app.whenReady().then(() => {
         });
     });
     ipcMain.on("siyuan-auto-launch", (event, data) => {
-        app.setLoginItemSettings({openAtLogin: data.openAtLogin});
+        app.setLoginItemSettings({
+            openAtLogin: data.openAtLogin,
+            args: data.openAsHidden ? ["--openAsHidden"] : ""
+        });
     });
 
     if (firstOpen) {
@@ -1189,7 +1216,7 @@ app.whenReady().then(() => {
         ipcMain.on("siyuan-first-init", (event, data) => {
             initKernel(data.workspace, "", data.lang).then((isSucc) => {
                 if (isSucc) {
-                    boot();
+                    initMainWindow();
                 }
             });
             firstOpenWindow.destroy();
@@ -1208,7 +1235,7 @@ app.whenReady().then(() => {
                 new URL(remote);
                 localhost = false;
                 baseURL = remote;
-                boot();
+                initMainWindow();
             } catch (e) {
                 writeLog(`remote URL ["${remote}"] is invalid`);
                 const errorWindowId = showErrorWindow("⚠️ 远程服务 URL 无效 The remote service URL is invalid", `<div>所设置的远程内核服务 URL [${remote}] 不是有效的 URL！</div><div>The remote kernel service URL [${remote}] that you set is not a valid URL!</div>`);
@@ -1245,7 +1272,7 @@ app.whenReady().then(() => {
         }
         initKernel(workspace, port, "", tlsKernel, tlsCertFile, tlsKeyFile).then((isSucc) => {
             if (isSucc) {
-                boot();
+                initMainWindow();
             }
         });
     }
@@ -1288,7 +1315,9 @@ app.whenReady().then(() => {
         writeLog("system shutdown");
         workspaces.forEach(item => {
             const currentURL = new URL(item.browserWindow.getURL());
-            net.fetch(getServer(currentURL.port) + "/api/system/exit", {method: "POST"});
+            if (currentURL.hostname === LOOPBACK_ADDRESS) {
+                kernelExit(currentURL.origin);
+            }
         });
     });
     powerMonitor.on("lock-screen", () => {
@@ -1352,7 +1381,7 @@ app.on("second-instance", (event, argv) => {
     if (workspace) {
         initKernel(workspace, port, "").then((isSucc) => {
             if (isSucc) {
-                boot();
+                initMainWindow();
             }
         });
         return;
@@ -1378,7 +1407,7 @@ app.on("activate", () => {
         }
     }
     if (BrowserWindow.getAllWindows().length === 0) {
-        boot();
+        initMainWindow();
     }
 });
 

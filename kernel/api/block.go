@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute/html"
@@ -29,7 +30,25 @@ import (
 	"github.com/siyuan-note/logging"
 )
 
-func getParentNextChildID(c *gin.Context) {
+func getBlockTreeInfos(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	var ids []string
+	idsArg := arg["ids"].([]interface{})
+	for _, id := range idsArg {
+		ids = append(ids, id.(string))
+	}
+
+	ret.Data = model.GetBlockTreeInfos(ids)
+}
+
+func getBlockSiblingID(c *gin.Context) {
 	ret := gulu.Ret.NewResult()
 	defer c.JSON(http.StatusOK, ret)
 
@@ -39,8 +58,11 @@ func getParentNextChildID(c *gin.Context) {
 	}
 
 	id := arg["id"].(string)
+	parent, previous, next := model.GetBlockSiblingID(id)
 	ret.Data = map[string]string{
-		"id": model.GetParentNextChildID(id),
+		"parent":   parent,
+		"next":     next,
+		"previous": previous,
 	}
 }
 
@@ -211,7 +233,11 @@ func checkBlockFold(c *gin.Context) {
 	}
 
 	id := arg["id"].(string)
-	ret.Data = model.IsBlockFolded(id)
+	isFolded, isRoot := model.IsBlockFolded(id)
+	ret.Data = map[string]interface{}{
+		"isFolded": isFolded,
+		"isRoot":   isRoot,
+	}
 }
 
 func checkBlockExist(c *gin.Context) {
@@ -331,7 +357,17 @@ func getRefText(c *gin.Context) {
 	if "" == refText {
 		// 空块返回 id https://github.com/siyuan-note/siyuan/issues/10259
 		refText = id
+		ret.Data = refText
+		return
 	}
+
+	if strings.Count(refText, "\\") == len(refText) {
+		// 全部都是 \ 的话使用实体 https://github.com/siyuan-note/siyuan/issues/11473
+		refText = strings.ReplaceAll(refText, "\\", "&#92;")
+		ret.Data = refText
+		return
+	}
+
 	ret.Data = refText
 }
 

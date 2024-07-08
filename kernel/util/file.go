@@ -24,6 +24,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -33,6 +34,46 @@ import (
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/logging"
 )
+
+func GetFilePathsByExts(dirPath string, exts []string) (ret []string) {
+	filelock.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if nil != err {
+			logging.LogErrorf("get file paths by ext failed: %s", err)
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		for _, ext := range exts {
+			if strings.HasSuffix(path, ext) {
+				ret = append(ret, path)
+				break
+			}
+		}
+		return nil
+	})
+	return
+}
+
+func GetUniqueFilename(filePath string) string {
+	if !gulu.File.IsExist(filePath) {
+		return filePath
+	}
+
+	ext := filepath.Ext(filePath)
+	base := strings.TrimSuffix(filepath.Base(filePath), ext)
+	dir := filepath.Dir(filePath)
+	i := 1
+	for {
+		newPath := filepath.Join(dir, base+" ("+strconv.Itoa(i)+")"+ext)
+		if !gulu.File.IsExist(newPath) {
+			return newPath
+		}
+		i++
+	}
+}
 
 func GetMimeTypeByExt(filePath string) (ret string) {
 	ret = mime.TypeByExtension(filepath.Ext(filePath))

@@ -5,7 +5,7 @@ import {fetchPost} from "../util/fetch";
 import {repos} from "./repos";
 import {confirmDialog} from "../dialog/confirmDialog";
 import {hasClosestByClassName} from "../protyle/util/hasClosest";
-import {getEventName} from "../protyle/util/compatibility";
+import {getEventName, isIPad} from "../protyle/util/compatibility";
 import {processSync} from "../dialog/processSystem";
 import {needSubscribe} from "../util/needSubscribe";
 import {syncGuide} from "../sync/syncGuide";
@@ -29,10 +29,11 @@ const genSVGBG = () => {
 export const account = {
     element: undefined as Element,
     genHTML: (onlyPayHTML = false) => {
-        const payHTML = `<a class="b3-button b3-button--big" href="${getIndexURL("pricing.html")}" target="_blank">
+        const hideIPad = isIPad() ? " fn__none" : "";
+        const payHTML = `<a class="b3-button b3-button--big${hideIPad}" href="${getIndexURL("pricing.html")}" target="_blank">
     <svg><use xlink:href="#iconVIP"></use></svg>${window.siyuan.languages[window.siyuan.user?.userSiYuanOneTimePayStatus === 1 ? "account4" : "account1"]}
 </a>
-<div class="fn__hr--b"></div>
+<div class="fn__hr--b${hideIPad}"></div>
 <span class="b3-chip b3-chip--primary b3-chip--hover${(window.siyuan.user && window.siyuan.user.userSiYuanSubscriptionStatus === 2) ? " fn__none" : ""}" id="trialSub">
     <svg class="ft__secondary"><use xlink:href="#iconVIP"></use></svg>
     ${window.siyuan.languages.freeSub}
@@ -86,7 +87,7 @@ ${genSVGBG()}
     ${window.siyuan.languages.account6} 
     ${Math.max(0, Math.floor((window.siyuan.user.userSiYuanProExpireTime - new Date().getTime()) / 1000 / 60 / 60 / 24))} 
     ${window.siyuan.languages.day} 
-    <a href="${getCloudURL("subscribe/siyuan")}" target="_blank">${window.siyuan.languages.clickMeToRenew}</a>
+    <a class="${hideIPad}" href="${getCloudURL("subscribe/siyuan")}" target="_blank">${window.siyuan.languages.clickMeToRenew}</a>
 </div>`;
                 if (window.siyuan.user.userSiYuanOneTimePayStatus === 1) {
                     subscriptionHTML = `<div class="b3-chip"><svg><use xlink:href="#iconVIP"></use></svg>${window.siyuan.languages.onepay}</div>
@@ -121,8 +122,8 @@ ${renewHTML}
     </div>
     <div class="config-account__info">
         <div class="fn__flex">
-            <a class="b3-button b3-button--text" href="${getCloudURL("settings")}" target="_blank">${window.siyuan.languages.manage}</a>
-            <span class="fn__space"></span>
+            <a class="b3-button b3-button--text${hideIPad}" href="${getCloudURL("settings")}" target="_blank">${window.siyuan.languages.manage}</a>
+            <span class="fn__space${hideIPad}"></span>
             <button class="b3-button b3-button--cancel" id="logout">
                 ${window.siyuan.languages.logout}
             </button>
@@ -448,22 +449,25 @@ ${renewHTML}
             return;
         }
         let html = "";
-        if (window.siyuan.config.account.displayVIP && window.siyuan.user) {
-            if (window.siyuan.user.userSiYuanProExpireTime === -1) {
-                html = `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.account12}">${Constants.SIYUAN_IMAGE_VIP}</div>`;
-            } else if (window.siyuan.user.userSiYuanProExpireTime > 0) {
-                if (window.siyuan.user.userSiYuanSubscriptionPlan === 2) {
-                    html = `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.account3}"><svg><use xlink:href="#iconVIP"></use></svg></div>`;
-                } else {
-                    html = `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.account10}"><svg class="ft__secondary"><use xlink:href="#iconVIP"></use></svg></div>`;
+        if (window.siyuan.config.account.displayVIP) {
+            if (window.siyuan.user) {
+                if (window.siyuan.user.userSiYuanProExpireTime === -1) { // 终身会员
+                    html = `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.account12}">${Constants.SIYUAN_IMAGE_VIP}</div>`;
+                } else if (window.siyuan.user.userSiYuanProExpireTime > 0) { // 订阅中
+                    if (window.siyuan.user.userSiYuanSubscriptionPlan === 2) { // 试用订阅
+                        html = `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.account3}"><svg><use xlink:href="#iconVIP"></use></svg></div>`;
+                    } else { // 正常订阅
+                        html = `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.account10}"><svg class="ft__secondary"><use xlink:href="#iconVIP"></use></svg></div>`;
+                    }
+                } else if (window.siyuan.user.userSiYuanSubscriptionStatus === -1) { // 未订阅
+                    html = `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.freeSub}"><svg class="ft__error"><use xlink:href="#iconVIP"></use></svg></div>`;
                 }
+                if (window.siyuan.user.userSiYuanOneTimePayStatus === 1) { // 一次性付费功能特性
+                    html += `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.onepay}"><svg><use xlink:href="#iconVIP"></use></svg></div>`;
+                }
+            } else { // 未登录
+                html = `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.freeSub}"><svg class="ft__error"><use xlink:href="#iconVIP"></use></svg></div>`;
             }
-            if (window.siyuan.user.userSiYuanOneTimePayStatus === 1) {
-                html += `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.onepay}"><svg><use xlink:href="#iconVIP"></use></svg></div>`;
-            }
-        }
-        if (!window.siyuan.user || (window.siyuan.user && window.siyuan.user.userSiYuanSubscriptionStatus === -1)) {
-            html = `<div class="toolbar__item ariaLabel" aria-label="${window.siyuan.languages.freeSub}"><svg class="ft__error"><use xlink:href="#iconVIP"></use></svg></div>`;
         }
         if (window.siyuan.config.account.displayTitle && window.siyuan.user) {
             window.siyuan.user.userTitles.forEach(item => {

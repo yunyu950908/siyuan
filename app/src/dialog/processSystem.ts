@@ -56,7 +56,7 @@ export const reloadSync = (app: App, data: { upsertRootIDs: string[], removeRoot
                 id: window.siyuan.mobile.editor.protyle.block.rootID
             }, (response) => {
                 setTitle(response.data.name);
-                (document.getElementById("toolbarName") as HTMLInputElement).value = response.data.name === window.siyuan.languages.untitled ? "" : response.data.name;
+                window.siyuan.mobile.editor.protyle.title.setTitle(response.data.name);
             });
         }
     }
@@ -67,8 +67,13 @@ export const reloadSync = (app: App, data: { upsertRootIDs: string[], removeRoot
     const allModels = getAllModels();
     allModels.editor.forEach(item => {
         if (data.upsertRootIDs.includes(item.editor.protyle.block.rootID)) {
-            reloadProtyle(item.editor.protyle, false);
-            updateTitle(item.editor.protyle.block.rootID, item.parent, item.editor.protyle);
+            fetchPost("/api/block/getDocInfo", {
+                id: item.editor.protyle.block.rootID,
+            }, (response) => {
+                item.editor.protyle.wysiwyg.renderCustom(response.data.ial);
+                reloadProtyle(item.editor.protyle, false, true);
+                updateTitle(item.editor.protyle.block.rootID, item.parent, item.editor.protyle);
+            });
         } else if (data.removeRootIDs.includes(item.editor.protyle.block.rootID)) {
             item.parent.parent.removeTab(item.parent.id, false, false);
             delete window.siyuan.storage[Constants.LOCAL_FILEPOSITION][item.editor.protyle.block.rootID];
@@ -284,28 +289,32 @@ export const transactionError = () => {
     });
 };
 
+let statusTimeout: number;
 export const progressStatus = (data: IWebSocketData) => {
     const statusElement = document.querySelector("#status") as HTMLElement;
     if (!statusElement) {
         return;
     }
+
     if (isMobile()) {
         if (!document.querySelector("#keyboardToolbar").classList.contains("fn__none")) {
             return;
         }
+        clearTimeout(statusTimeout);
         statusElement.innerHTML = data.msg;
         statusElement.style.bottom = "0";
-        setTimeout(() => {
+        statusTimeout = window.setTimeout(() => {
             statusElement.style.bottom = "";
-        }, 5000);
-        return;
-    }
-    const msgElement = statusElement.querySelector(".status__msg");
-    if (msgElement) {
-        msgElement.innerHTML = data.msg;
-        setTimeout(() => {
-            msgElement.innerHTML = "";
-        }, 5000);
+        }, 7000);
+    } else {
+        const msgElement = statusElement.querySelector(".status__msg");
+        if (msgElement) {
+            clearTimeout(statusTimeout);
+            msgElement.innerHTML = data.msg;
+            statusTimeout = window.setTimeout(() => {
+                msgElement.innerHTML = "";
+            }, 7000);
+        }
     }
 };
 
